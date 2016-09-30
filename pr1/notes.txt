@@ -1,0 +1,4 @@
+2)||a-b|| eq 2*(1 - aT * b)
+4) a practical guide to svm.... reemplazar svc. Estimar gamma with cross validation. C and gamma must change.
+Use norm1. Pass kernel by hand.
+
