@@ -1,77 +1,13 @@
-# -*- coding: utf-8 -*-
-'''
-AAVC, FaMAF-UNC, 20-SEP-2016
+"""Train a sequence tagger.
 
-=======================================================
-Lab 1: Clasificación de imágenes empleando modelos BoVW
-=======================================================
+Usage:
+  lab1.py [-nc <integer>]
 
-0) Familiarizarse con el código y con el dataset.
+Options:
+  -nc <integer>    Number of clusters
+"""
 
-Svetlana Lazebnik, Cordelia Schmid, and Jean Ponce. (2006) Beyond Bags of
-Features: Spatial Pyramid Matching for Recognizing Natural Scene Categories. In:
-CVPR. Link:
-http://www-cvr.ai.uiuc.edu/ponce_grp/data/scene_categories/scene_categories.zip
 
-1) Determinar el mejor valor para el parámetro C del clasificador (SVM lineal)
-mediante 5-fold cross-validation en el conjunto de entrenamiento (gráfica) de
-uno de los folds. Una vez elegido el parámetro, reportar media y desviación
-estándar del accuracy sobre el conjunto de test.
-
-Hsu, C. W., Chang, C. C., & Lin, C. J. (2003). A practical guide to support
-vector classification.
-
-2) Evaluar accuracy vs. n_clusters. Que pasa con los tiempos de cómputo de
-BoVW?. Gráficas.
-
-Si tengo descriptores locales L2-normalizados: cómo puedo optimizar la
-asignación de los mismos a palabras del diccionario? (ayuda: expresar la
-distancia euclídea entre dos vectores en términos de productos puntos entre los
-mismo)
-
-3) Transformaciones en descriptores / vectores BoVW: evaluar impacto de
-transformación sqrt y norma L2.
-
-Arandjelović, R., & Zisserman, A. (2012). Three things everyone should know to
-improve object retrieval. In: CVPR.
-
-4) Kernels no lineales: Intersección (BoVW: norm=1) y RBF, ajustando parámetros
-mediante cross-validation en conjunto de validación.
-
-5*) Implementar "spatial augmentation": agregar las coordenadas espaciales
-(relativas) a cada descriptor, esto es: el descriptor d=(d1,...,dn) se
-transforma a d'=(d1,...,dn, x/W-0.5, y/H-0.5), en donde H y W son el alto y
-ancho de la imagen, respectivamente.
-
-Sánchez, J., Perronnin, F., & De Campos, T. (2012). Modeling the spatial layout
-of images beyond spatial pyramids. In: PRL
-
-6*) Emplear un "vocabulary tree". Explicar como afecta la asignación de
-descritpores locales a palabras del diccionario.
-
-Nister, D., & Stewenius, H. (2006). Scalable recognition with a vocabulary
-tree. In: CVPR
-
-7*) Reemplazar BoVW por VLAD (implementar)
-
-Arandjelovic, R., & Zisserman, A. (2013). All about VLAD. In: CVPR
-
-8*) Trabajar sobre el dataset MIT-IndoorScenes (67 clases).
-
-A. Quattoni, and A.Torralba (2009). Recognizing Indoor Scenes. In: CVPR.
-link: http://web.mit.edu/torralba/www/indoor.html
-
-Algunas observaciones:
-
-  - El dataset provee un train/test split estándar, por lo que hay que armar un
-  parser que levante los .txt y arme el diccionario correspondiente al
-  dataset.
-
-  - Son 2.4G de imágenes, por lo que tener todos los vectores BoVW en memoria se
-  vuelve difícil. El entrenamiento en este caso se debe hacer mediante SGD
-  (sklearn.linear_models.SGDClassifier). Prestar atención al esquema de
-  actualización.
-'''
 from __future__ import print_function
 from __future__ import division
 
@@ -84,6 +20,7 @@ import numpy as np
 np.seterr(all='raise')
 
 import cv2
+import pickle
 
 from skimage.feature import daisy
 from skimage.transform import rescale
@@ -92,8 +29,7 @@ from sklearn.svm import LinearSVC
 
 from scipy.spatial import distance
 from scipy.io import savemat, loadmat
-
-
+from docopt import docopt
 
 def save_data(data, filename, force_overwrite=False):
     # if dir/subdir doesn't exist, create it
@@ -262,9 +198,28 @@ def compute_bovw(vocabulary, features, norm=2):
     nrm = np.linalg.norm(bovw, ord=norm)
     return bovw / (nrm + 1e-7)
 
+'''
+updates a list on disk with the provided element, if the file is present
+if the file is missing, starts from scratch.
+returns the list
+'''
+def appendToList(filename, element):
+    items = []
+    if exists(filename):
+        f = open(filename, 'rb')
+        items = pickle.load(f)
+
+    items.append(element)
+    f = open(filename, 'wb')
+    pickle.dump(items, f)
+    f.close()
+    return items
+
+
 
 if __name__ == "__main__":
     random_state = np.random.RandomState(12345)
+    opts = docopt(__doc__)
 
     # ----------------
     # DATA PREPARATION
@@ -295,7 +250,7 @@ if __name__ == "__main__":
     # --------------------------------
 
     n_samples = int(1e5)
-    n_clusters = 100
+    n_clusters = int(opts.get('-nc', 100))
     vocabulary_file = join(output_path, 'vocabulary{:d}.dat'.format(n_clusters))
     if exists(vocabulary_file):
         #vocabulary = pickle.load(open(vocabulary_file, 'rb'))
@@ -348,12 +303,13 @@ if __name__ == "__main__":
     svm = LinearSVC(C=1.0, verbose=1)
 
 
-    # -----------------
-    # Find parameter C
-    # -----------------
+    # ----------------------
+    # Find top parameter C
+    # ----------------------
 
-    c_candidates = [pow(2, x) for x in range(-5, 15)]
-    topC, topAcc = 0, 0.0
+    # c_candidates = [pow(2, x) for x in range(-5, 15)]
+    c_candidates = [] # np.arange(0.1, 4, 0.1)
+    topC, topAcc = 2.27, 0.0
     for candidate in c_candidates:
         splits = 5
         # map from a split number -> accuracy of that split
@@ -363,17 +319,19 @@ if __name__ == "__main__":
             chunk_size = int(len(X_train) / float(splits))
             start = split * chunk_size
             stop = (split + 1) * chunk_size if split is not (splits - 1) else len(X_train)
-            svm.fit(X_train[:start] + X_train[stop:], y_train[:start] + y_train[stop:])
+            x = np.concatenate((X_train[:start], X_train[stop:]))
+            y = np.concatenate((y_train[:start], y_train[stop:]))
+            svm.fit(x, y)
             y_pred = svm.predict(X_train[start:stop])
             split_acc[split] = sum(y_pred == y_train[start:stop]) / len(y_train[start:stop])
 
         # compute accuracy for current C
-        curr_acc = np.mean(split_acc.values())
+        curr_acc = np.mean(list(split_acc.values()))
         if curr_acc > topAcc:
             topAcc = curr_acc
             topC = candidate
 
-    print('top accuracy = {:.3f}'.format(topAcc))
+    print('\ntop accuracy = {:.3f}'.format(topAcc))
     print('with C = {:.3f}'.format(topC))
 
     # setup testing data
@@ -386,7 +344,15 @@ if __name__ == "__main__":
     X_test = np.array(X_test)
     y_test = np.array(y_test)
 
+    svm = LinearSVC(C=topC, verbose=0)
+    svm.fit(X_train, y_train)
     y_pred = svm.predict(X_test)
 
     tp = np.sum(y_test == y_pred)
-    print('accuracy = {:.3f}'.format(float(tp) / len(y_test)))
+    acc = float(tp) / len(y_test)
+    print('accuracy = {:.3f}'.format(acc))
+    appendToList('cs.pk', topC)
+    appendToList('acc.pk', acc)
+
+
+
