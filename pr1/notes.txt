@@ -1,3 +1,81 @@
+# -*- coding: utf-8 -*-
+'''
+AAVC, FaMAF-UNC, 20-SEP-2016
+
+=======================================================
+Lab 1: Clasificación de imágenes empleando modelos BoVW
+=======================================================
+
+0) Familiarizarse con el código y con el dataset.
+
+Svetlana Lazebnik, Cordelia Schmid, and Jean Ponce. (2006) Beyond Bags of
+Features: Spatial Pyramid Matching for Recognizing Natural Scene Categories. In:
+CVPR. Link:
+http://www-cvr.ai.uiuc.edu/ponce_grp/data/scene_categories/scene_categories.zip
+
+1) Determinar el mejor valor para el parámetro C del clasificador (SVM lineal)
+mediante 5-fold cross-validation en el conjunto de entrenamiento (gráfica) de
+uno de los folds. Una vez elegido el parámetro, reportar media y desviación
+estándar del accuracy sobre el conjunto de test.
+
+Hsu, C. W., Chang, C. C., & Lin, C. J. (2003). A practical guide to support
+vector classification.
+
+2) Evaluar accuracy vs. n_clusters. Que pasa con los tiempos de cómputo de
+BoVW?. Gráficas.
+
+Si tengo descriptores locales L2-normalizados: cómo puedo optimizar la
+asignación de los mismos a palabras del diccionario? (ayuda: expresar la
+distancia euclídea entre dos vectores en términos de productos puntos entre los
+mismo)
+
+3) Transformaciones en descriptores / vectores BoVW: evaluar impacto de
+transformación sqrt y norma L2.
+
+Arandjelović, R., & Zisserman, A. (2012). Three things everyone should know to
+improve object retrieval. In: CVPR.
+
+4) Kernels no lineales: Intersección (BoVW: norm=1) y RBF, ajustando parámetros
+mediante cross-validation en conjunto de validación.
+
+5*) Implementar "spatial augmentation": agregar las coordenadas espaciales
+(relativas) a cada descriptor, esto es: el descriptor d=(d1,...,dn) se
+transforma a d'=(d1,...,dn, x/W-0.5, y/H-0.5), en donde H y W son el alto y
+ancho de la imagen, respectivamente.
+
+Sánchez, J., Perronnin, F., & De Campos, T. (2012). Modeling the spatial layout
+of images beyond spatial pyramids. In: PRL
+
+6*) Emplear un "vocabulary tree". Explicar como afecta la asignación de
+descritpores locales a palabras del diccionario.
+
+Nister, D., & Stewenius, H. (2006). Scalable recognition with a vocabulary
+tree. In: CVPR
+
+7*) Reemplazar BoVW por VLAD (implementar)
+
+Arandjelovic, R., & Zisserman, A. (2013). All about VLAD. In: CVPR
+
+8*) Trabajar sobre el dataset MIT-IndoorScenes (67 clases).
+
+A. Quattoni, and A.Torralba (2009). Recognizing Indoor Scenes. In: CVPR.
+link: http://web.mit.edu/torralba/www/indoor.html
+
+Algunas observaciones:
+
+  - El dataset provee un train/test split estándar, por lo que hay que armar un
+  parser que levante los .txt y arme el diccionario correspondiente al
+  dataset.
+
+  - Son 2.4G de imágenes, por lo que tener todos los vectores BoVW en memoria se
+  vuelve difícil. El entrenamiento en este caso se debe hacer mediante SGD
+  (sklearn.linear_models.SGDClassifier). Prestar atención al esquema de
+  actualización.
+'''
+
+
+
+
 2)||a-b|| eq 2*(1 - aT * b)
 4) a practical guide to svm.... reemplazar svc. Estimar gamma with cross validation. C and gamma must change.
 Use norm1. Pass kernel by hand.
