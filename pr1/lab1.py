@@ -218,6 +218,26 @@ def appendToList(filename, element):
     return items
 
 
+def comp_bow(fname):
+    # low-level features file
+    featfile = join(output_path, splitext(fname)[0] + '.feat')
+
+    # check if destination file already exists
+    bovwfile = join(output_path, splitext(fname)[0] + '.bovw')
+    if exists(bovwfile):
+        print('{} already exists'.format(bovwfile))
+        return
+
+    #feat = pickle.load(open(featfile, 'rb'))
+    features = load_data(featfile)
+    for feature in features:
+        feature/=(np.linalg.norm(feature, ord=2) + 1e-7)
+    bovw = compute_bovw(vocabulary, features, norm=2)
+
+    save_data(bovw, bovwfile)
+    print('{}'.format(bovwfile))
+
+
 if __name__ == "__main__":
     random_state = np.random.RandomState(12345)
     opts = docopt(__doc__)
@@ -273,26 +293,13 @@ if __name__ == "__main__":
     # COMPUTE BoVW VECTORS
     # --------------------
     start = datetime.now()
-    for fname in dataset['fname']:
-        # low-level features file
-        featfile = join(output_path, splitext(fname)[0] + '.feat')
+    import multiprocessing
+    pool = multiprocessing.Pool(4)
 
-        # check if destination file already exists
-        bovwfile = join(output_path, splitext(fname)[0] + '.bovw')
-        if exists(bovwfile):
-            print('{} already exists'.format(bovwfile))
-            continue
-
-        #feat = pickle.load(open(featfile, 'rb'))
-        features = load_data(featfile)
-        for feature in features:
-            feature/=(np.linalg.norm(feature, ord=2) + 1e-7)
-        bovw = compute_bovw(vocabulary, features, norm=2)
-
-        save_data(bovw, bovwfile)
-        print('{}'.format(bovwfile))
-
+    #for fname in dataset['fname']:
+    pool.map(comp_bow, dataset['fname'], 1000)
     appendToList('bowt.pk', (datetime.now() - start).total_seconds())
+
 
     # -----------------
     # TRAIN CLASSIFIERS
