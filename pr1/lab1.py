@@ -15,6 +15,7 @@ import sys
 
 from os import listdir, makedirs
 from os.path import join, splitext, abspath, split, exists
+from timeit import timeit
 
 import numpy as np
 np.seterr(all='raise')
@@ -30,6 +31,7 @@ from sklearn.svm import LinearSVC
 from scipy.spatial import distance
 from scipy.io import savemat, loadmat
 from docopt import docopt
+from datetime import datetime
 
 def save_data(data, filename, force_overwrite=False):
     # if dir/subdir doesn't exist, create it
@@ -92,7 +94,7 @@ def extract_multiscale_dense_features(imfile, step=8, scales=SCALES_3):
     for sc in scales:
         dsize = (int(sc * im.shape[0]), int(sc * im.shape[1]))
         im_scaled = cv2.resize(im, dsize, interpolation=cv2.INTER_LINEAR)
-        feat = daisy(im_scaled, step=step)
+        feat = daisy(im_scaled, step=step, normalization='off')
         if feat.size == 0:
             break
         ndim = feat.shape[2]
@@ -114,7 +116,6 @@ def compute_features(base_path, im_list, output_path):
             continue
 
         feat = extract_multiscale_dense_features(imfile)
-
         save_data(feat, featfile)
         print('{}: {} features'.format(featfile, feat.shape[0]))
 
@@ -192,8 +193,9 @@ def kmeans_fit(samples, n_clusters, maxiter=100, tol=1e-4, random_state=None):
 def compute_bovw(vocabulary, features, norm=2):
     if vocabulary.shape[1] != features.shape[1]:
         raise RuntimeError('something is wrong with the data dimensionality')
-    dist2 = distance.cdist(features, vocabulary, metric='sqeuclidean')
-    assignments = np.argmin(dist2, axis=1)
+    #dist2 = distance.cdist(features, vocabulary, metric='sqeuclidean')
+    dist3 = 2 * (1 - np.dot(features, vocabulary.transpose()))
+    assignments = np.argmin(dist3, axis=1)
     bovw, _ = np.histogram(assignments, range(vocabulary.shape[1]))
     nrm = np.linalg.norm(bovw, ord=norm)
     return bovw / (nrm + 1e-7)
@@ -214,7 +216,6 @@ def appendToList(filename, element):
     pickle.dump(items, f)
     f.close()
     return items
-
 
 
 if __name__ == "__main__":
@@ -261,6 +262,9 @@ if __name__ == "__main__":
                                     n_samples, random_state=random_state)
         vocabulary = kmeans_fit(sample, n_clusters=n_clusters,
                                 random_state=random_state)
+        # L2 normalize each row in vocabulary
+        for word in vocabulary:
+            word/=(np.linalg.norm(word, ord=2) + 1e-7)
         save_data(vocabulary, vocabulary_file)
 
     print('{}: {} clusters'.format(vocabulary_file, vocabulary.shape[0]))
@@ -268,7 +272,7 @@ if __name__ == "__main__":
     # --------------------
     # COMPUTE BoVW VECTORS
     # --------------------
-
+    start = datetime.now()
     for fname in dataset['fname']:
         # low-level features file
         featfile = join(output_path, splitext(fname)[0] + '.feat')
@@ -280,11 +284,15 @@ if __name__ == "__main__":
             continue
 
         #feat = pickle.load(open(featfile, 'rb'))
-        feat = load_data(featfile)
-        bovw = compute_bovw(vocabulary, feat, norm=2)
+        features = load_data(featfile)
+        for feature in features:
+            feature/=(np.linalg.norm(feature, ord=2) + 1e-7)
+        bovw = compute_bovw(vocabulary, features, norm=2)
 
         save_data(bovw, bovwfile)
         print('{}'.format(bovwfile))
+
+    appendToList('bowt.pk', (datetime.now() - start).total_seconds())
 
     # -----------------
     # TRAIN CLASSIFIERS
