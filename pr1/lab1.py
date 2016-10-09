@@ -1,10 +1,11 @@
 """Train a sequence tagger.
 
 Usage:
-  lab1.py [-nc <integer>]
+  lab1.py [-nc <integer>] [-nt <integer>]
 
 Options:
   -nc <integer>    Number of clusters
+  -nt <integer>    Number of threads
 """
 
 
@@ -193,9 +194,9 @@ def kmeans_fit(samples, n_clusters, maxiter=100, tol=1e-4, random_state=None):
 def compute_bovw(vocabulary, features, norm=2):
     if vocabulary.shape[1] != features.shape[1]:
         raise RuntimeError('something is wrong with the data dimensionality')
-    #dist2 = distance.cdist(features, vocabulary, metric='sqeuclidean')
-    dist3 = 2 * (1 - np.dot(features, vocabulary.transpose()))
-    assignments = np.argmin(dist3, axis=1)
+    # dist2 = 2 * (1 - np.dot(features, vocabulary.transpose()))
+    dist2 = distance.cdist(features, vocabulary, metric='sqeuclidean')
+    assignments = np.argmin(dist2, axis=1)
     bovw, _ = np.histogram(assignments, range(vocabulary.shape[1]))
     nrm = np.linalg.norm(bovw, ord=norm)
     return bovw / (nrm + 1e-7)
@@ -218,25 +219,21 @@ def appendToList(filename, element):
     return items
 
 
-def comp_bow(fname):
+def call_bow(fname):
     # low-level features file
     featfile = join(output_path, splitext(fname)[0] + '.feat')
-
     # check if destination file already exists
     bovwfile = join(output_path, splitext(fname)[0] + '.bovw')
     if exists(bovwfile):
         print('{} already exists'.format(bovwfile))
         return
-
     #feat = pickle.load(open(featfile, 'rb'))
     features = load_data(featfile)
     for feature in features:
         feature/=(np.linalg.norm(feature, ord=2) + 1e-7)
     bovw = compute_bovw(vocabulary, features, norm=2)
-
     save_data(bovw, bovwfile)
     print('{}'.format(bovwfile))
-
 
 if __name__ == "__main__":
     random_state = np.random.RandomState(12345)
@@ -293,11 +290,17 @@ if __name__ == "__main__":
     # COMPUTE BoVW VECTORS
     # --------------------
     start = datetime.now()
-    import multiprocessing
-    pool = multiprocessing.Pool(4)
+    if '-nt' in opts:
+        n_threads = opts.get('-nt')
+        import multiprocessing
+        pool = multiprocessing.Pool(4)
+        pool.map(call_bow, dataset['fname'], 4400 / n_threads)
+    else:
+        # serial version
+        for fname in dataset['fname']:
+            call_bow(fname)
 
-    #for fname in dataset['fname']:
-    pool.map(comp_bow, dataset['fname'], 1000)
+    # store times
     appendToList('bowt.pk', (datetime.now() - start).total_seconds())
 
 
@@ -322,8 +325,8 @@ if __name__ == "__main__":
     # Find top parameter C
     # ----------------------
 
-    # c_candidates = [pow(2, x) for x in range(-5, 15)]
-    c_candidates = [] # np.arange(0.1, 4, 0.1)
+    c_candidates = [pow(2, x) for x in range(-5, 15)]
+    # c_candidates = np.arange(0.1, 4, 0.1)
     topC, topAcc = 2.27, 0.0
     for candidate in c_candidates:
         splits = 5
