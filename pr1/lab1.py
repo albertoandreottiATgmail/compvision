@@ -1,11 +1,12 @@
 """Train a sequence tagger.
 
 Usage:
-  lab1.py [-nc <integer>] [-nt <integer>]
+  lab1.py [-c <integer>] [-t <integer>] [-k <kernel>]
 
 Options:
-  -nc <integer>    Number of clusters
-  -nt <integer>    Number of threads
+  -c <integer>    Number of clusters
+  -t <integer>    Number of threads
+  -k <string>     one of 'intersect' or 'rbf'
 """
 
 
@@ -27,7 +28,7 @@ import pickle
 from skimage.feature import daisy
 from skimage.transform import rescale
 
-from sklearn.svm import LinearSVC
+from sklearn.svm import LinearSVC, SVC
 
 from scipy.spatial import distance
 from scipy.io import savemat, loadmat
@@ -222,16 +223,16 @@ def appendToList(filename, element):
 def call_bow(fname):
     # low-level features file
     featfile = join(output_path, splitext(fname)[0] + '.feat')
-    # check if destination file already exists
     bovwfile = join(output_path, splitext(fname)[0] + '.bovw')
+
+    # check if destination file already exists
     if exists(bovwfile):
         print('{} already exists'.format(bovwfile))
         return
+
     #feat = pickle.load(open(featfile, 'rb'))
     features = load_data(featfile)
-    for feature in features:
-        feature/=(np.linalg.norm(feature, ord=2) + 1e-7)
-    bovw = compute_bovw(vocabulary, features, norm=2)
+    bovw = compute_bovw(vocabulary, features, norm=1)
     save_data(bovw, bovwfile)
     print('{}'.format(bovwfile))
 
@@ -268,7 +269,7 @@ if __name__ == "__main__":
     # --------------------------------
 
     n_samples = int(1e5)
-    n_clusters = int(opts.get('-nc', 100))
+    n_clusters = int(opts.get('-c', 100)) if opts['-c'] else 100
     vocabulary_file = join(output_path, 'vocabulary{:d}.dat'.format(n_clusters))
     if exists(vocabulary_file):
         #vocabulary = pickle.load(open(vocabulary_file, 'rb'))
@@ -280,8 +281,8 @@ if __name__ == "__main__":
         vocabulary = kmeans_fit(sample, n_clusters=n_clusters,
                                 random_state=random_state)
         # L2 normalize each row in vocabulary
-        for word in vocabulary:
-            word/=(np.linalg.norm(word, ord=2) + 1e-7)
+        # for word in vocabulary:
+        #    word/=(np.linalg.norm(word, ord=2) + 1e-7)
         save_data(vocabulary, vocabulary_file)
 
     print('{}: {} clusters'.format(vocabulary_file, vocabulary.shape[0]))
@@ -290,11 +291,11 @@ if __name__ == "__main__":
     # COMPUTE BoVW VECTORS
     # --------------------
     start = datetime.now()
-    if '-nt' in opts:
-        n_threads = opts.get('-nt')
+    if opts['-t']:
+        n_threads = int(opts.get('-t'))
         import multiprocessing
         pool = multiprocessing.Pool(4)
-        pool.map(call_bow, dataset['fname'], 4400 / n_threads)
+        pool.map(call_bow, dataset['fname'], 4400 // n_threads)
     else:
         # serial version
         for fname in dataset['fname']:
@@ -318,16 +319,25 @@ if __name__ == "__main__":
     X_train = np.array(X_train)
     y_train = np.array(y_train)
 
-    svm = LinearSVC(C=1.0, verbose=1)
+
+    def metric(X, Y):
+        return np.sum(np.minimum(X, Y))
+
+    def int_kernel(X,Y):
+        return distance.cdist(X, Y, metric=metric)
+
+
+
 
 
     # ----------------------
     # Find top parameter C
     # ----------------------
 
-    c_candidates = [pow(2, x) for x in range(-5, 15)]
-    # c_candidates = np.arange(0.1, 4, 0.1)
-    topC, topAcc = 2.27, 0.0
+    # c_candidates = [pow(2, x) for x in range(-5, 15)]
+    c_candidates = np.arange(0.1, 4, 0.1)
+    #c_candidates = []
+    topC, topAcc = 1.8, 0.0
     for candidate in c_candidates:
         splits = 5
         # map from a split number -> accuracy of that split
@@ -362,7 +372,11 @@ if __name__ == "__main__":
     X_test = np.array(X_test)
     y_test = np.array(y_test)
 
-    svm = LinearSVC(C=topC, verbose=0)
+    if opts['-k']:
+        svm = SVC(C=topC, verbose=1, kernel=int_kernel)
+    else:
+        svm = LinearSVC(C=topC, verbose=0)
+
     svm.fit(X_train, y_train)
     y_pred = svm.predict(X_test)
 
