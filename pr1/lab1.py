@@ -232,9 +232,42 @@ def call_bow(fname):
 
     #feat = pickle.load(open(featfile, 'rb'))
     features = load_data(featfile)
-    bovw = compute_bovw(vocabulary, features, norm=1)
+    bovw = compute_bovw(vocabulary, features)
     save_data(bovw, bovwfile)
     print('{}'.format(bovwfile))
+
+
+def search_top_c(param):
+    if param is 'linear' or param is 'intersect':
+        c_candidates = np.arange(0.1, 6, 0.1)
+        topC, topAcc = 1.6, 0.0
+        for candidate in c_candidates:
+            splits = 5
+            # map from a split number -> accuracy of that split
+            split_acc = {}
+            for split in range(splits):
+                if param is 'linear':
+                    svm = LinearSVC(C=candidate, verbose=1)
+                else:
+                    svm = SVC(C=candidate, verbose=1, kernel=int_kernel)
+
+                chunk_size = int(len(X_train) / float(splits))
+                start = split * chunk_size
+                stop = (split + 1) * chunk_size if split is not (splits - 1) else len(X_train)
+                x = np.concatenate((X_train[:start], X_train[stop:]))
+                y = np.concatenate((y_train[:start], y_train[stop:]))
+                svm.fit(x, y)
+                y_pred = svm.predict(X_train[start:stop])
+                split_acc[split] = sum(y_pred == y_train[start:stop]) / len(y_train[start:stop])
+
+            # compute accuracy for current C
+            curr_acc = np.mean(list(split_acc.values()))
+            if curr_acc > topAcc:
+                topAcc = curr_acc
+                topC = candidate
+        return topC, topAcc
+
+
 
 if __name__ == "__main__":
     random_state = np.random.RandomState(12345)
@@ -334,30 +367,7 @@ if __name__ == "__main__":
     # Find top parameter C
     # ----------------------
 
-    # c_candidates = [pow(2, x) for x in range(-5, 15)]
-    c_candidates = np.arange(0.1, 4, 0.1)
-    #c_candidates = []
-    topC, topAcc = 1.8, 0.0
-    for candidate in c_candidates:
-        splits = 5
-        # map from a split number -> accuracy of that split
-        split_acc = {}
-        for split in range(splits):
-            svm = LinearSVC(C=candidate, verbose=1)
-            chunk_size = int(len(X_train) / float(splits))
-            start = split * chunk_size
-            stop = (split + 1) * chunk_size if split is not (splits - 1) else len(X_train)
-            x = np.concatenate((X_train[:start], X_train[stop:]))
-            y = np.concatenate((y_train[:start], y_train[stop:]))
-            svm.fit(x, y)
-            y_pred = svm.predict(X_train[start:stop])
-            split_acc[split] = sum(y_pred == y_train[start:stop]) / len(y_train[start:stop])
-
-        # compute accuracy for current C
-        curr_acc = np.mean(list(split_acc.values()))
-        if curr_acc > topAcc:
-            topAcc = curr_acc
-            topC = candidate
+    topC, topAcc = search_top_c('intersect')
 
     print('\ntop accuracy = {:.3f}'.format(topAcc))
     print('with C = {:.3f}'.format(topC))
@@ -382,7 +392,7 @@ if __name__ == "__main__":
 
     tp = np.sum(y_test == y_pred)
     acc = float(tp) / len(y_test)
-    print('accuracy = {:.3f}'.format(acc))
+    print('accuracy = {:.3f}, topC = {:.3f}'.format(acc, topC))
     appendToList('cs.pk', topC)
     appendToList('acc.pk', acc)
 
