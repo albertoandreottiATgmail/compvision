@@ -96,11 +96,13 @@ def extract_multiscale_dense_features(imfile, step=8, scales=SCALES_3):
     for sc in scales:
         dsize = (int(sc * im.shape[0]), int(sc * im.shape[1]))
         im_scaled = cv2.resize(im, dsize, interpolation=cv2.INTER_LINEAR)
-        feat = daisy(im_scaled, step=step, normalization='off')
+        feat = daisy(im_scaled, step=step, normalization='l2')
         if feat.size == 0:
             break
         ndim = feat.shape[2]
         feat = np.atleast_2d(feat.reshape(-1, ndim))
+        for f in feat:
+            np.sqrt(f, f)
         feat_all.append(feat)
     return np.row_stack(feat_all).astype(np.float32)
 
@@ -199,6 +201,7 @@ def compute_bovw(vocabulary, features, norm=2):
     dist2 = distance.cdist(features, vocabulary, metric='sqeuclidean')
     assignments = np.argmin(dist2, axis=1)
     bovw, _ = np.histogram(assignments, range(vocabulary.shape[1]))
+    bovw = np.sqrt(bovw)
     nrm = np.linalg.norm(bovw, ord=norm)
     return bovw / (nrm + 1e-7)
 
@@ -232,21 +235,22 @@ def call_bow(fname):
 
     #feat = pickle.load(open(featfile, 'rb'))
     features = load_data(featfile)
-    bovw = compute_bovw(vocabulary, features)
+    bovw = compute_bovw(vocabulary, features, 2)
     save_data(bovw, bovwfile)
     print('{}'.format(bovwfile))
 
 
 def search_top_c(param):
-    if param is 'linear' or param is 'intersect':
-        c_candidates = np.arange(0.1, 6, 0.1)
-        topC, topAcc = 1.6, 0.0
+    c_candidates = np.arange(2, 4, .2)
+    topC, topAcc = 1.6, 0.0
+
+    if param == 'linear' or param == 'intersect':
         for candidate in c_candidates:
             splits = 5
             # map from a split number -> accuracy of that split
             split_acc = {}
             for split in range(splits):
-                if param is 'linear':
+                if param == 'linear':
                     svm = LinearSVC(C=candidate, verbose=1)
                 else:
                     svm = SVC(C=candidate, verbose=1, kernel=int_kernel)
@@ -265,13 +269,41 @@ def search_top_c(param):
             if curr_acc > topAcc:
                 topAcc = curr_acc
                 topC = candidate
-        return topC, topAcc
+        return topC, topAcc, 0
 
+    if param == 'rbf':
+        c_candidates = np.arange(3, 7, .2)
+        topGamma = 0
+        import itertools
+        gamma_candidates = np.arange(2, 6, .2)
+        for C, gamma in itertools.product(c_candidates, gamma_candidates):
+            splits = 5
+            # map from a split number -> accuracy of that split
+            split_acc = {}
+            for split in range(splits):
+                svm = SVC(C=C, kernel='rbf', gamma=gamma, verbose=1)
 
+                chunk_size = int(len(X_train) / float(splits))
+                start = split * chunk_size
+                stop = (split + 1) * chunk_size if split is not (splits - 1) else len(X_train)
+                x = np.concatenate((X_train[:start], X_train[stop:]))
+                y = np.concatenate((y_train[:start], y_train[stop:]))
+                svm.fit(x, y)
+                y_pred = svm.predict(X_train[start:stop])
+                split_acc[split] = sum(y_pred == y_train[start:stop]) / len(y_train[start:stop])
+
+            # compute accuracy for current C
+            curr_acc = np.mean(list(split_acc.values()))
+            if curr_acc > topAcc:
+                topAcc = curr_acc
+                topC = C
+                topGamma = gamma
+        return topC, topAcc, topGamma
 
 if __name__ == "__main__":
     random_state = np.random.RandomState(12345)
     opts = docopt(__doc__)
+    print(opts['-k'])
 
     # ----------------
     # DATA PREPARATION
@@ -359,15 +391,11 @@ if __name__ == "__main__":
     def int_kernel(X,Y):
         return distance.cdist(X, Y, metric=metric)
 
-
-
-
-
     # ----------------------
     # Find top parameter C
     # ----------------------
 
-    topC, topAcc = search_top_c('intersect')
+    topC, topAcc, topGamma = search_top_c(opts['-k'])
 
     print('\ntop accuracy = {:.3f}'.format(topAcc))
     print('with C = {:.3f}'.format(topC))
@@ -382,8 +410,10 @@ if __name__ == "__main__":
     X_test = np.array(X_test)
     y_test = np.array(y_test)
 
-    if opts['-k']:
+    if opts['-k'] == 'intersect':
         svm = SVC(C=topC, verbose=1, kernel=int_kernel)
+    elif opts['-k'] == 'rbf':
+        svm = SVC(C=topC, verbose=1, gamma=topGamma)
     else:
         svm = LinearSVC(C=topC, verbose=0)
 
@@ -392,7 +422,7 @@ if __name__ == "__main__":
 
     tp = np.sum(y_test == y_pred)
     acc = float(tp) / len(y_test)
-    print('accuracy = {:.3f}, topC = {:.3f}'.format(acc, topC))
+    print('accuracy = {:.3f}, topC = {:.3f}, topGamma = {:.3f}'.format(acc, topC, topGamma))
     appendToList('cs.pk', topC)
     appendToList('acc.pk', acc)
 
