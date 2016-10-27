@@ -104,7 +104,7 @@ if __name__ == "__main__":
     # BUILD VOCABULARY
     # ----------------
 
-    unsup_base_path = '/media/jrg/DATA/Datasets/UKB/ukbench/full/'
+    unsup_base_path = 'full/'
     unsup_image_list_file = 'image_list.txt'
 
     output_path = 'cache'
