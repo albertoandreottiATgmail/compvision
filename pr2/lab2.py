@@ -41,6 +41,8 @@ from os import listdir, makedirs
 from os.path import join, splitext, abspath, split, exists
 
 import numpy as np
+from skimage.transform import AffineTransform
+
 np.seterr(all='raise')
 
 import cv2
@@ -50,6 +52,8 @@ from utils import load_data, save_data, load_index, save_index, get_random_sampl
 from sklearn.cluster import KMeans
 
 from scipy.spatial import distance
+
+from skimage.measure import ransac
 
 import base64
 
@@ -67,8 +71,18 @@ def geometric_consistency(feat1, feat2):
 
     number_of_inliers = 0
 
+    # 1) matching de features
+    matcher = cv2.BFMatcher()
+    matches = matcher.match(desc1, desc2)
+    src = []
+    dst = []
+    for match in matches:
+        src.append(kp1[match.queryIdx]), dst.append(kp1[match.queryIdx])
+
+    # src and dst are list of lists that contain 2 elements
+    model_robust, inliers = ransac((src, dst), AffineTransform, min_samples=3,
+                                   residual_threshold=2, max_trials=100)
     '''
-    1) matching de features
     2) Estimar una tranformación afín empleando RANSAC
        a) armar una función que estime una transformación afin a partir de
           correspondencias entre 3 pares de puntos (solución de mínimos
@@ -181,7 +195,7 @@ if __name__ == "__main__":
             assignments = np.argmin(dist2, axis=1)
             idx, count = np.unique(assignments, return_counts=True)
             for j, c in zip(idx, count):
-                index['dbase'][j].append((imID, c))
+                index['dbase'][j].append((imID, c)) #image 'imID' had feature 'j', 'c' times
             index['n'] += 1
             index['df'][idx] += 1
             #index['norm'][imID] = np.float32(nd)
@@ -234,11 +248,16 @@ if __name__ == "__main__":
 
         # score images using the (modified) dot-product with the query
         scores = dict.fromkeys(index['id2i'], 0)
-        for i, idx_ in enumerate(idx):
+        for i, idx_ in enumerate(idx): # idx_ is a feature number
             index_i = index['dbase'][idx_]
-            for (id_, c) in index_i:
+            for (id_, c) in index_i: # id_ is an image id, c is the number of times feature idx_ appears there.
 		#scores[id_] += 1
                 #scores[id_] += count[i] * c / index['norm'][id_]
+                # score for image id_
+                # idf2[i] inverse document frequency for feature i, is it ok to use i as index????
+                # count[] number of times features i appears in query image
+                # c number of times feature appears in current dataset image
+                # index['norm'][id_], norm of the histogram for current dataset image???
                 scores[id_] += idf2[i] * count[i] * c / index['norm'][id_]
 
         # rank list
