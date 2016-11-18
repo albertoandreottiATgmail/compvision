@@ -105,7 +105,8 @@ if __name__ == "__main__":
     # BUILD VOCABULARY
     # ----------------
 
-    unsup_base_path = '/media/jrg/DATA/Datasets/UKB/ukbench/full/'
+    #unsup_base_path = '/media/jrg/DATA/Datasets/UKB/ukbench/full/'
+    unsup_base_path = '/media/jrg/T2/Datasets/UKB/ukbench/full/'
     unsup_image_list_file = 'image_list.txt'
 
     output_path = 'cache'
@@ -166,7 +167,7 @@ if __name__ == "__main__":
 
         for i, fname in enumerate(image_list):
             imfile = join(base_path, fname)
-            imID = fname  #base64.encodestring(fname) # as int? / simlink to filepath?
+            imID = base64.encodestring(fname) # as int? / simlink to filepath?
             if imID in index['id2i']:
                 continue
             index['id2i'][imID] = i
@@ -237,7 +238,8 @@ if __name__ == "__main__":
         # flat/cosine/IK similarities ------------------------------------------
 
         query_norm = np.linalg.norm(count_qy)
-        count_qy /= query_norm   # comment this line for flat scoring
+        count_qy = count_qy.astype(np.float)  # otherwise =/ raises an exception
+        count_qy /= (query_norm + 2**-23)   # comment this line for flat scoring
 
         for i, idx_qy_i in enumerate(idx_qy):  # for each VW in the query
             inverted_list = index['dbase'][idx_qy_i]   # retrieve inv. list
@@ -246,12 +248,12 @@ if __name__ == "__main__":
 		# scores[img_id] += 1
 
                 # cosine similarity = dot-prod. between l2-normalized BoVWs
-                scores[img_id] += count_qy_i * count_db_i / index['norm'][img_id]
+                scores[img_id] += count_qy[i] * count_db_i / index['norm'][img_id]
 
                 # # intersection kernel
                 # scores[img_id] += ...
 
-        # # tf-idf ---------------------------------------------------------------
+        # tf-idf ---------------------------------------------------------------
 
         # tf_idf_qy = idf[idx_qy] * count_qy / float(len(desc))
         # tf_idf_qy /= (np.linalg.norm(tf_idf_qy) + 2**-23)
