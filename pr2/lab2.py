@@ -41,22 +41,20 @@ from os import listdir, makedirs
 from os.path import join, splitext, abspath, split, exists
 
 import numpy as np
-from skimage.transform import AffineTransform
-
 np.seterr(all='raise')
 
 import cv2
 
-from utils import load_data, save_data, load_index, save_index, get_random_sample, compute_features
+from utils import load_data, save_data, load_index, save_index, get_random_sample, compute_features, arr2kp
 
 from sklearn.cluster import KMeans
 
 from scipy.spatial import distance
 
-from skimage.measure import ransac
-
 import base64
 
+from skimage.measure import ransac
+from skimage.transform import AffineTransform
 
 N_QUERY = 100
 
@@ -71,18 +69,8 @@ def geometric_consistency(feat1, feat2):
 
     number_of_inliers = 0
 
-    # 1) matching de features
-    matcher = cv2.BFMatcher()
-    matches = matcher.match(desc1, desc2)
-    src = []
-    dst = []
-    for match in matches:
-        src.append(kp1[match.queryIdx]), dst.append(kp1[match.queryIdx])
-
-    # src and dst are list of lists that contain 2 elements
-    model_robust, inliers = ransac((src, dst), AffineTransform, min_samples=3,
-                                   residual_threshold=2, max_trials=100)
     '''
+    1) matching de features
     2) Estimar una tranformación afín empleando RANSAC
        a) armar una función que estime una transformación afin a partir de
           correspondencias entre 3 pares de puntos (solución de mínimos
@@ -90,7 +78,6 @@ def geometric_consistency(feat1, feat2):
        b) implementar RANSAC usando esa función como estimador base
     3) contar y retornar número de inliers
     '''
-
     return number_of_inliers
 
 
@@ -118,7 +105,7 @@ if __name__ == "__main__":
     # BUILD VOCABULARY
     # ----------------
 
-    unsup_base_path = 'full/'
+    unsup_base_path = '/media/jrg/DATA/Datasets/UKB/ukbench/full/'
     unsup_image_list_file = 'image_list.txt'
 
     output_path = 'cache'
@@ -171,14 +158,15 @@ if __name__ == "__main__":
             'df': np.zeros(n_clusters, dtype=int),                # doc. frec.
             'dbase': dict([(k, []) for k in range(n_clusters)]),  # inv. file
             'id2i': {},                                           # id->index
-            'norm': {}                                            # L2-norms
+            'norm': {},                                           # L2-norms
+            'nd': {}                                              # number of features per image
         }
 
         n_images = len(image_list)
 
         for i, fname in enumerate(image_list):
             imfile = join(base_path, fname)
-            imID = base64.encodestring(fname) # as int? / simlink to filepath?
+            imID = fname  #base64.encodestring(fname) # as int? / simlink to filepath?
             if imID in index['id2i']:
                 continue
             index['id2i'][imID] = i
@@ -195,11 +183,11 @@ if __name__ == "__main__":
             assignments = np.argmin(dist2, axis=1)
             idx, count = np.unique(assignments, return_counts=True)
             for j, c in zip(idx, count):
-                index['dbase'][j].append((imID, c)) #image 'imID' had feature 'j', 'c' times
+                index['dbase'][j].append((imID, c))
             index['n'] += 1
             index['df'][idx] += 1
-            #index['norm'][imID] = np.float32(nd)
             index['norm'][imID] = np.linalg.norm(count)
+            index['nd'][imID] = float(nd)
 
             print('\rindexing {}/{}'.format(i+1, n_images), end='')
             sys.stdout.flush()
@@ -220,7 +208,6 @@ if __name__ == "__main__":
     print('OK')
 
     idf = np.log(index['n'] / (index['df'] + 2**-23))
-    idf2 = idf ** 2.0
 
     n_short_list = 100
 
@@ -239,26 +226,49 @@ if __name__ == "__main__":
             fdict = compute_features(imfile)
         kp, desc = fdict['kp'], fdict['desc']
 
-        # retrieve short list
+        # get visual word asssinments + counts
         dist2 = distance.cdist(desc, vocabulary, metric='sqeuclidean')
         assignments = np.argmin(dist2, axis=1)
-        idx, count = np.unique(assignments, return_counts=True)
-
-        query_norm = np.linalg.norm(count)
+        idx_qy, count_qy = np.unique(assignments, return_counts=True)
 
         # score images using the (modified) dot-product with the query
         scores = dict.fromkeys(index['id2i'], 0)
-        for i, idx_ in enumerate(idx): # idx_ is a feature number
-            index_i = index['dbase'][idx_]
-            for (id_, c) in index_i: # id_ is an image id, c is the number of times feature idx_ appears there.
-		#scores[id_] += 1
-                #scores[id_] += count[i] * c / index['norm'][id_]
-                # score for image id_
-                # idf2[i] inverse document frequency for feature i, is it ok to use i as index????
-                # count[] number of times features i appears in query image
-                # c number of times feature appears in current dataset image
-                # index['norm'][id_], norm of the histogram for current dataset image???
-                scores[id_] += idf2[i] * count[i] * c / index['norm'][id_]
+
+        # flat/cosine/IK similarities ------------------------------------------
+
+        query_norm = np.linalg.norm(count_qy)
+        count_qy /= query_norm   # comment this line for flat scoring
+
+        for i, idx_qy_i in enumerate(idx_qy):  # for each VW in the query
+            inverted_list = index['dbase'][idx_qy_i]   # retrieve inv. list
+            for (img_id, count_db_i) in inverted_list:
+                # # flat scores
+		# scores[img_id] += 1
+
+                # cosine similarity = dot-prod. between l2-normalized BoVWs
+                scores[img_id] += count_qy_i * count_db_i / index['norm'][img_id]
+
+                # # intersection kernel
+                # scores[img_id] += ...
+
+        # # tf-idf ---------------------------------------------------------------
+
+        # tf_idf_qy = idf[idx_qy] * count_qy / float(len(desc))
+        # tf_idf_qy /= (np.linalg.norm(tf_idf_qy) + 2**-23)
+
+        # tf_idf_db_norm = dict.fromkeys(index['id2i'], 0)
+
+        # for i, idx_qy_i in enumerate(idx_qy):
+        #     inverted_list = index['dbase'][idx_qy_i]
+        #     for (img_id, count_db_i) in inverted_list:
+        #         tf_idf_db_i = idf[idx_qy_i] * count_db_i / index['nd'][img_id]
+        #         tf_idf_db_norm[img_id] += tf_idf_db_i ** 2.0
+        #         scores[img_id] += tf_idf_qy[i] * tf_idf_db_i
+
+        # for img_id in scores.keys():
+        #     scores[img_id] /= np.sqrt(tf_idf_db_norm[img_id] + 2**-23)
+
+        # ----------------------------------------------------------------------
 
         # rank list
         short_list = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:n_short_list]
@@ -274,7 +284,7 @@ if __name__ == "__main__":
             scores.append(consistency_score)
 
         # re-rank short list
-        if np.sum(scores) > 0:
+        if np.sum(scores) > 0.0:
             idxs = np.argsort(-np.array(scores))
             short_list = [short_list[i] for i in idxs]
 
@@ -287,7 +297,7 @@ if __name__ == "__main__":
         for id_, s in short_list[:4]:
             i = index['id2i'][id_]
             tp += int((i//4) == (n//4))
-            print('  {:.3f} {}'.format(s/query_norm, image_list[i]))
+            print('  {:.3f} {}'.format(s, image_list[i]))
         print('  hits = {}'.format(tp))
         score.append(tp)
 
