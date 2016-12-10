@@ -56,7 +56,10 @@ from skimage.measure import ransac
 from skimage.transform import AffineTransform
 
 N_QUERY = 100
-GEO_CHECK = True
+GEO_CHECK = False
+NORM_L2 = False
+pca_dim = 32
+pca_enabled = False
 
 
 def read_image_list(imlist_file):
@@ -68,7 +71,6 @@ def geometric_consistency(feat1, feat2):
     if not GEO_CHECK:
         return 0
 
-    # TODO: add pca
     kp1, desc1 = feat1['kp'], feat1['desc']
     desc1 = pca_project(desc1, P, mu, pca_dim)
 
@@ -86,8 +88,8 @@ def geometric_consistency(feat1, feat2):
         src.append(kp_im1), dst.append(kp_im2)
 
     # src and dst are list of lists that contain 2 elements
-    model_robust, inliers = ransac((np.array(src), np.array(dst)), AffineTransform, min_samples=3,
-    residual_threshold=2, max_trials=100)
+    model_robust, inliers = ransac((np.array(src), np.array(dst)), AffineTransform, min_samples=4,
+    residual_threshold=6, max_trials=350)
 
     '''
 
@@ -126,16 +128,21 @@ def pca_fit(samples):
 
 # project vectors or entire datasets
 def pca_project(x, P, mu, dim):
-    pca_enabled = True
 
     if not pca_enabled:
+        if NORM_L2:
+            x /= (np.linalg.norm(x, ord=2) + 1e-7)
         return x
 
     reshaped = (x - mu)
     if len(x.shape) == 1:
         reshaped = reshaped.reshape(1, -1)
 
-    return np.dot(reshaped, P[:, :dim]).squeeze()
+    projection = np.dot(reshaped, P[:, :dim]).squeeze()
+    if NORM_L2:
+        projection /= (np.linalg.norm(projection, ord=2) + 1e-7)
+
+    return projection
 
 if __name__ == "__main__":
     random_state = np.random.RandomState(12345)
@@ -161,7 +168,6 @@ if __name__ == "__main__":
         print('{} saved'.format(unsup_samples_file))
 
     # train PCA
-    pca_dim = 32
     pca_file = join(output_path, 'pca_{:d}.dat'.format(pca_dim))
     samples = load_data(unsup_samples_file)
     P, mu = pca_fit(samples)
