@@ -56,7 +56,7 @@ from skimage.measure import ransac
 from skimage.transform import AffineTransform
 
 N_QUERY = 100
-GEO_CHECK = False
+GEO_CHECK = True
 NORM_L2 = False
 pca_dim = 32
 pca_enabled = False
@@ -265,7 +265,7 @@ if __name__ == "__main__":
     sys.stdout.flush()
     index = load_index(index_file)
     print('OK')
-
+    # number of documents / number of times the VW appears in any document(ignore a VW appearing multiple times)
     idf = np.log(index['n'] / (index['df'] + 2**-23))
 
     n_short_list = 100
@@ -297,37 +297,37 @@ if __name__ == "__main__":
         scores = dict.fromkeys(index['id2i'], 0) # id-> score
 
         # flat/cosine/IK similarities ------------------------------------------
-        query_norm = np.linalg.norm(count_qy)
-        count_qy = count_qy.astype(np.float)  # otherwise =/ raises an exception
-        count_qy /= (query_norm + 2**-23)     # comment this line for flat scoring
+        # query_norm = np.linalg.norm(count_qy)
+        # count_qy = count_qy.astype(np.float)  # otherwise =/ raises an exception
+        # count_qy /= (query_norm + 2**-23)     # comment this line for flat scoring
 
-        for i, idx_qy_i in enumerate(idx_qy):  # for each VW in the query
-            inverted_list = index['dbase'][idx_qy_i]   # retrieve inv. list
-            for (img_id, count_db_i) in inverted_list:
-                # # flat scores
-		        # scores[img_id] += 1
-                # cosine similarity = dot-prod. between l2-normalized BoVWs
-                scores[img_id] += count_qy[i] * count_db_i / index['norm'][img_id]
+        # for i, idx_qy_i in enumerate(idx_qy):  # for each VW in the query
+        #    inverted_list = index['dbase'][idx_qy_i]   # retrieve inv. list
+        #    for (img_id, count_db_i) in inverted_list:
+        #        # flat scores
+		#        scores[img_id] += 1
+        #        # cosine similarity = dot-prod. between l2-normalized BoVWs
+        #        # scores[img_id] += count_qy[i] * count_db_i / index['norm'][img_id]
 
-                # # intersection kernel
-                # scores[img_id] += ...
+        #        # # intersection kernel
+        #        # scores[img_id] += ...
 
         # tf-idf ---------------------------------------------------------------
 
-        # tf_idf_qy = idf[idx_qy] * count_qy / float(len(desc))
-        # tf_idf_qy /= (np.linalg.norm(tf_idf_qy) + 2**-23)
+        tf_idf_qy = idf[idx_qy] * count_qy / float(len(desc))
+        tf_idf_qy /= (np.linalg.norm(tf_idf_qy) + 2**-23)
 
-        # tf_idf_db_norm = dict.fromkeys(index['id2i'], 0)
+        tf_idf_db_norm = dict.fromkeys(index['id2i'], 0)
 
-        # for i, idx_qy_i in enumerate(idx_qy):
-        #     inverted_list = index['dbase'][idx_qy_i]
-        #     for (img_id, count_db_i) in inverted_list:
-        #         tf_idf_db_i = idf[idx_qy_i] * count_db_i / index['nd'][img_id]
-        #         tf_idf_db_norm[img_id] += tf_idf_db_i ** 2.0
-        #         scores[img_id] += tf_idf_qy[i] * tf_idf_db_i
+        for i, idx_qy_i in enumerate(idx_qy):
+            inverted_list = index['dbase'][idx_qy_i]
+            for (img_id, count_db_i) in inverted_list:
+                tf_idf_db_i = idf[idx_qy_i] * count_db_i / index['nd'][img_id]
+                tf_idf_db_norm[img_id] += tf_idf_db_i ** 2.0
+                scores[img_id] += tf_idf_qy[i] * tf_idf_db_i
 
-        # for img_id in scores.keys():
-        #     scores[img_id] /= np.sqrt(tf_idf_db_norm[img_id] + 2**-23)
+        for img_id in scores.keys():
+            scores[img_id] /= np.sqrt(tf_idf_db_norm[img_id] + 2**-23)
 
         # ----------------------------------------------------------------------
 
