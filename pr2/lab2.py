@@ -56,7 +56,7 @@ from skimage.measure import ransac
 from skimage.transform import AffineTransform
 
 N_QUERY = 100
-GEO_CHECK = True
+GEO_CHECK = False
 NORM_L2 = False
 pca_dim = 32
 pca_enabled = False
@@ -143,6 +143,11 @@ def pca_project(x, P, mu, dim):
         projection /= (np.linalg.norm(projection, ord=2) + 1e-7)
 
     return projection
+
+
+def intersect(count_db_i, count_qy):
+    return sum(min(count_db_i, count_qy))
+
 
 if __name__ == "__main__":
     random_state = np.random.RandomState(12345)
@@ -245,7 +250,8 @@ if __name__ == "__main__":
                 index['dbase'][j].append((imID, c))
             index['n'] += 1
             index['df'][idx] += 1 # increase one to all feature ids in idx.
-            index['norm'][imID] = np.linalg.norm(count)
+            #index['norm'][imID] = np.linalg.norm(count)
+            index['norm'][imID] = sum(abs(count))
             index['nd'][imID] = float(nd)
 
             print('\rindexing {}/{}'.format(i+1, n_images), end='')
@@ -298,36 +304,37 @@ if __name__ == "__main__":
 
         # flat/cosine/IK similarities ------------------------------------------
         # query_norm = np.linalg.norm(count_qy)
-        # count_qy = count_qy.astype(np.float)  # otherwise =/ raises an exception
-        # count_qy /= (query_norm + 2**-23)     # comment this line for flat scoring
+        query_norm = sum(abs((count_qy)))
+        count_qy = count_qy.astype(np.float)  # otherwise =/ raises an exception
+        count_qy /= (query_norm + 2**-23)     # comment this line for flat scoring
 
-        # for i, idx_qy_i in enumerate(idx_qy):  # for each VW in the query
-        #    inverted_list = index['dbase'][idx_qy_i]   # retrieve inv. list
-        #    for (img_id, count_db_i) in inverted_list:
-        #        # flat scores
-		#        scores[img_id] += 1
-        #        # cosine similarity = dot-prod. between l2-normalized BoVWs
-        #        # scores[img_id] += count_qy[i] * count_db_i / index['norm'][img_id]
-
-        #        # # intersection kernel
-        #        # scores[img_id] += ...
-
-        # tf-idf ---------------------------------------------------------------
-
-        tf_idf_qy = idf[idx_qy] * count_qy / float(len(desc))
-        tf_idf_qy /= (np.linalg.norm(tf_idf_qy) + 2**-23)
-
-        tf_idf_db_norm = dict.fromkeys(index['id2i'], 0)
-
-        for i, idx_qy_i in enumerate(idx_qy):
-            inverted_list = index['dbase'][idx_qy_i]
+        for i, idx_qy_i in enumerate(idx_qy):  # for each VW in the query
+            inverted_list = index['dbase'][idx_qy_i]   # retrieve inv. list
             for (img_id, count_db_i) in inverted_list:
-                tf_idf_db_i = idf[idx_qy_i] * count_db_i / index['nd'][img_id]
-                tf_idf_db_norm[img_id] += tf_idf_db_i ** 2.0
-                scores[img_id] += tf_idf_qy[i] * tf_idf_db_i
+                # flat scores
+		        #scores[img_id] += 1
+                # cosine similarity = dot-prod. between l2-normalized BoVWs
+                # scores[img_id] += count_qy[i] * count_db_i / index['norm'][img_id]
 
-        for img_id in scores.keys():
-            scores[img_id] /= np.sqrt(tf_idf_db_norm[img_id] + 2**-23)
+                # intersection kernel
+                scores[img_id] += min(count_qy[i], float(count_db_i) / index['norm'][img_id])
+
+            # tf-idf ---------------------------------------------------------------
+
+        #tf_idf_qy = idf[idx_qy] * count_qy / float(len(desc))
+        #tf_idf_qy /= (np.linalg.norm(tf_idf_qy) + 2**-23)
+
+        #tf_idf_db_norm = dict.fromkeys(index['id2i'], 0)
+
+        #for i, idx_qy_i in enumerate(idx_qy):
+        #    inverted_list = index['dbase'][idx_qy_i]
+        #    for (img_id, count_db_i) in inverted_list:
+        #        tf_idf_db_i = idf[idx_qy_i] * count_db_i / index['nd'][img_id]
+        #        tf_idf_db_norm[img_id] += tf_idf_db_i ** 2.0
+        #        scores[img_id] += tf_idf_qy[i] * tf_idf_db_i
+
+        #for img_id in scores.keys():
+        #    scores[img_id] /= np.sqrt(tf_idf_db_norm[img_id] + 2**-23)
 
         # ----------------------------------------------------------------------
 
